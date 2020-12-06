@@ -1,0 +1,29 @@
+[quote, Rob the Builder]
+Can we fix it? No, but we can tell you it's broken.
+
+= Rob Run
+
+This component of Rob the Builder pulls jobs from the database queue, runs
+them, and updates their status. All commands, which are presumably scripts,
+are run on a Qemu virtual machine running in snapshot mode so that the running
+image isn't changed.
+
+== Building Images
+
+Images are based on the
+https://cloud.debian.org/cdimage/openstack/current-10/debian-10-openstack-amd64.qcow2[
+Debian OpenStack Cloud Image] converted to a raw image with `qemu-img`, mounted
+as a loopback device, and modified to
+https://unix.stackexchange.com/questions/552576/allow-passwordless-root-login-on-the-serial-console[
+automatically login root on ttyS0.] Memory snapshots are also created and passed
+as `incoming` parameters so that the machine does not have to boot each time
+(https://bugs.launchpad.net/qemu/+bug/1184089/comments/2[a special technique
+must be used due to the `-snapshot` parameter]). Note that the image _must_
+contain the scripts you wish to run with it.
+
+Rob Run uses the command prompt to determine when the VM is ready or when a
+command has finished. For these images, the prompt defaults to `root@debian:~#`.
+
+== Writing Scripts
+
+== Resources and Scaling
