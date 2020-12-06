@@ -6,7 +6,7 @@ use tokio::time::{sleep, Duration};
 use log::debug;
 
 // all times are in seconds
-const START_TIMEOUT: u64 = 10; // how long to wait to get a bash prompt
+const START_TIMEOUT: u64 = 30; // how long to wait to get a bash prompt
 const START_WAIT: u64 = 2; // how long to wait after you received a bash prompt
 const COMMAND_TIMEOUT: u64 = 600; // how long to wait for a command to complete
 
@@ -38,6 +38,7 @@ async fn prompt_check(stdout: &mut tokio::process::ChildStdout, prompt: &str) ->
 async fn ready(stdin: &mut tokio::process::ChildStdin,
                stdout: &mut tokio::process::ChildStdout,
                prompt: &str) -> Result<()> {
+    debug!("Giving the VM {} seconds to start", START_TIMEOUT);
     loop {
         tokio::select! {
             _ = sleep(Duration::from_secs(START_TIMEOUT)) => {
@@ -64,7 +65,7 @@ async fn ready(stdin: &mut tokio::process::ChildStdin,
 async fn run_command(stdin: &mut tokio::process::ChildStdin,
                      stdout: &mut tokio::process::ChildStdout,
                      prompt: &str, command: &str) -> Result<String> {
-    debug!("Writing: {}\r\n", command);
+    debug!("Writing: {}\\r\\n", command);
     stdin.write_all(format!("{}\r\n", command).as_bytes()).await?;
     loop {
         tokio::select! {

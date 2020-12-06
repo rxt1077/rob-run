@@ -3,10 +3,10 @@ Can we fix it? No, but we can tell you it's broken.
 
 = Rob Run
 
-This component of Rob the Builder pulls jobs from the database queue, runs
+This component of _Rob the Builder_ pulls jobs from the database queue, runs
 them, and updates their status. All commands, which are presumably scripts,
-are run on a Qemu virtual machine running in snapshot mode so that the running
-image isn't changed.
+are run on a Qemu virtual machine running in snapshot mode so that the image
+isn't changed.
 
 == Building Images
 
@@ -21,9 +21,53 @@ as `incoming` parameters so that the machine does not have to boot each time
 must be used due to the `-snapshot` parameter]). Note that the image _must_
 contain the scripts you wish to run with it.
 
+== Prompts
+
 Rob Run uses the command prompt to determine when the VM is ready or when a
 command has finished. For these images, the prompt defaults to `root@debian:~#`.
+As the VM starts, newlines are sent every second to stdin. Eventually the VM
+will respond with a prompt, showing its ready. Then the command is sent via
+stdin and when the prompt shows up a second time, the command is complete.
+A quick glance at the debugging output (activated by setting `RUST_LOG`) will
+demonstrate:
+
+[source, console]
+----
+ryan@home:~/rob-run$ RUST_LOG=debug cargo run
+[2020-12-06T16:33:57Z DEBUG rob_run::vm] Writing a newline
+qemu-system-x86_64: warning: TCG doesn't support requested feature: CPUID.01H:ECX.vmx [bit 5]
+[2020-12-06T16:33:58Z DEBUG rob_run::vm] Writing a newline
+[2020-12-06T16:33:59Z DEBUG rob_run::vm] Writing a newline
+[2020-12-06T16:34:00Z DEBUG rob_run::vm] Writing a newline
+[2020-12-06T16:34:01Z DEBUG rob_run::vm] Writing a newline
+[2020-12-06T16:34:02Z DEBUG rob_run::vm] Writing a newline
+[2020-12-06T16:34:03Z DEBUG rob_run::vm] Writing a newline
+[2020-12-06T16:34:03Z DEBUG rob_run::vm] Read a line:
+[2020-12-06T16:34:03Z DEBUG rob_run::vm] Read a line: root@debian:~# <1>
+[2020-12-06T16:34:03Z DEBUG rob_run::vm] Reader finished
+[2020-12-06T16:34:03Z DEBUG rob_run::vm] Waiting 2 seconds to read unfinished prompts
+[2020-12-06T16:34:05Z DEBUG rob_run::vm] Read an extra 83 bytes from STDIN
+[2020-12-06T16:34:05Z DEBUG rob_run::vm] Writing: ls /\r\n <2>
+[2020-12-06T16:34:05Z DEBUG rob_run::vm] Read a line: ls /
+[2020-12-06T16:34:05Z DEBUG rob_run::vm] Read a line: bin   home              lib32       media  root  sys  vmlinuz
+[2020-12-06T16:34:05Z DEBUG rob_run::vm] Read a line: boot  initrd.img      lib64         mnt    run   tmp  vmlinuz.old
+[2020-12-06T16:34:05Z DEBUG rob_run::vm] Read a line: dev   initrd.img.old  libx32        opt    sbin  usr
+[2020-12-06T16:34:05Z DEBUG rob_run::vm] Read a line: etc   lib       lost+found  proc   srv   var
+[2020-12-06T16:34:05Z DEBUG rob_run::vm] Read a line: root@debian:~# <3>
+Job successfully finished in 8s
+----
+<1> first prompt, indicating VM is ready
+<2> command being run (followed by `\r\n`)
+<3> second prompt, indicating command is done
 
 == Writing Scripts
 
 == Resources and Scaling
+
+== Why QEMU in a process?
+
+While something like https://libvirt.org/[libvirt] utilizing
+https://linuxcontainers.org/[LXC] would be a better fit, this was developed in
+https://docs.microsoft.com/en-us/windows/wsl/about[WSL2] which doesn't readily
+have support for either. As a result, _Rob Run_ may be run on systems where
+you don't have root access, which is something I may utilize in the future.
