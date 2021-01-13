@@ -1,4 +1,5 @@
 images/*
 target/*
+!target/debian
 *.qcow
 memsnapshot.gz
