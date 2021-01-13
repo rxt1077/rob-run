@@ -1,10 +1,23 @@
 [package]
 name = "rob-run"
 version = "0.1.0"
+license-file = "LICENSE"
+description = "A job runner for the Rob the Builder build system"
 authors = ["Ryan Tolboom <rxt1077@njit.edu>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[package.metadata.deb]
+maintainer = "Ryan Tolboom <rxt1077@njit.edu>"
+copyright = "2021, Ryan Tolboom <rxt1077@njit.edu>"
+depends = "qemu"
+section = "Development"
+priority = "optional"
+assets = [
+  ["target/x86_64-unknown-linux-musl/release/rob-run", "/usr/bin", "755"],
+  ["debian/rob-run.service", "etc/systemd/system/", "644"],
+  ["debian/env.conf", "etc/systemd/system/rob-run.service.d/", "644"],
+  ["README.adoc", "usr/share/doc/rob-run/README", "644"],
+]
 
 [dependencies]
 tokio-postgres = { version = "0.6.0", features = [ "with-chrono-0_4" ] }

@@ -1,2 +1,4 @@
 images/*
 target/*
+*.qcow
+memsnapshot.gz

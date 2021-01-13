@@ -8,23 +8,44 @@ them, and updates their status. All commands, which are presumably scripts,
 are run on a Qemu virtual machine running in snapshot mode so that the image
 isn't changed.
 
-== Building Images
+== Building/Packaging Rob Run
 
-Images are based on the
+Rob Run is compiled as a static libmusl image to make it easy to use on new
+systems. A Debian package can also be build with the `cargo deb` command. The
+Debian package includes a systemd service and configuration files.
+
+== Building an Image
+
+Standard images are based on the
 https://cloud.debian.org/cdimage/openstack/current-10/debian-10-openstack-amd64.qcow2[
-Debian OpenStack Cloud Image] converted to a raw image with `qemu-img`, mounted
-as a loopback device, and modified to
-https://unix.stackexchange.com/questions/552576/allow-passwordless-root-login-on-the-serial-console[
-automatically login root on ttyS0.] Memory snapshots are also created and passed
-as `incoming` parameters so that the machine does not have to boot each time
-(https://bugs.launchpad.net/qemu/+bug/1184089/comments/2[a special technique
-must be used due to the `-snapshot` parameter]). Note that the image _must_
-contain the scripts you wish to run with it.
+Debian OpenStack Cloud Image], built and configured with
+https://cloudinit.readthedocs.io/en/latest/[cloud-init]. The images are
+https://blog.oddbit.com/post/2020-02-24-a-passwordless-serial-console/[modified
+to allow for an automatic root login on ttyS0], and some packages are added
+(Docker, git, curl) and removed (openssh-sever). A script that does this can be
+found in `images/cloud-init/build_image.sh`.
+
+Memory snapshots can also be used so that the VM does not have to boot each
+time. https://bugs.launchpad.net/qemu/+bug/1184089/comments/2[A particular
+method of getting memory snapshots] must be employed due to the use of the
+`-snapshot` parameter when the VM is run.
+
+== Writing a Test Script
+
+Tests scripts are basic BASH scripts scripts put into an ISO which is passed as
+the `-cdrom` option to QEMU. Standard images mount the test scripts in `/mnt`.
+Example test scripts as well as a script to build the ISO can be found in the
+`tests` directory. Test scripts are passed the git URL of the group as their
+first parameter.
+
+Currently there is no automation regarding whether a test passes or fails. The
+output is meant to be looked over by an instructor who will use it to determine
+how they want to proceed.
 
 == Prompts
 
 Rob Run uses the command prompt to determine when the VM is ready or when a
-command has finished. For these images, the prompt defaults to `root@debian:~#`.
+command has finished. For these images, the prompt defaults to `root@rob-run:~#`.
 As the VM starts, newlines are sent every second to stdin. Eventually the VM
 will respond with a prompt, showing its ready. Then the command is sent via
 stdin and when the prompt shows up a second time, the command is complete.
@@ -59,8 +80,6 @@ Job successfully finished in 8s
 <1> first prompt, indicating VM is ready
 <2> command being run (followed by `\r\n`)
 <3> second prompt, indicating command is done
-
-== Writing Scripts
 
 == Resources and Scaling
 

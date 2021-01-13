@@ -6,9 +6,11 @@ use tokio::time::{sleep, Duration};
 use log::debug;
 
 // all times are in seconds
-const START_TIMEOUT: u64 = 30; // how long to wait to get a bash prompt
-const START_WAIT: u64 = 2; // how long to wait after you received a bash prompt
-const COMMAND_TIMEOUT: u64 = 600; // how long to wait for a command to complete
+// how long to wait to get a bash prompt, remeber some VMs may need to boot so
+// error on the high side
+const START_TIMEOUT: u64 = 120;
+// how long to wait after you received a bash prompt
+const START_WAIT: u64 = 2;
 
 // sends one newline a second to a stdin
 async fn send_newlines(stdin: &mut tokio::process::ChildStdin) -> Result<()> {
@@ -64,12 +66,12 @@ async fn ready(stdin: &mut tokio::process::ChildStdin,
 // writes a command to stdin, adding '\r\n' to the end
 async fn run_command(stdin: &mut tokio::process::ChildStdin,
                      stdout: &mut tokio::process::ChildStdout,
-                     prompt: &str, command: &str) -> Result<String> {
+                     prompt: &str, command: String, command_timeout: Duration) -> Result<String> {
     debug!("Writing: {}\\r\\n", command);
     stdin.write_all(format!("{}\r\n", command).as_bytes()).await?;
     loop {
         tokio::select! {
-            _ = sleep(Duration::from_secs(COMMAND_TIMEOUT)) => {
+            _ = sleep(command_timeout) => {
                 return Err(anyhow!("Timed out waiting for command to finish"));
             }
             output_result = prompt_check(stdout, prompt) => {
@@ -81,27 +83,52 @@ async fn run_command(stdin: &mut tokio::process::ChildStdin,
 
 // runs a single command in a VM, returning the output and killing the VM when
 // done
-pub async fn run(command: &str, image: &str, snapshot: &str, prompt: &str) -> Result<String> {
-    let args = ["-hda", image,
-                "-m", "1G",
-                "-netdev", "user,id=n1",
-                "-device", "virtio-net-pci,netdev=n1",
-                "-nographic",
-                "-incoming", &format!("exec: gzip -c -d {}", snapshot),
-                "-snapshot"];
+pub async fn run(command: String,
+                 command_timeout: Duration,
+                 image: &str,
+                 scripts_image: &Option<String>,
+                 snapshot: &Option<String>,
+                 prompt: &str) -> Result<String>
+{
+    let mut args = vec!["-hda".to_string(), image.to_string(),
+                        "-m".to_string(), "1G".to_string(),
+                        "-netdev".to_string(), "user,id=n1".to_string(),
+                        "-device".to_string(), "virtio-net-pci,netdev=n1".to_string(),
+                        "-nographic".to_string(), "-snapshot".to_string()];
+    match snapshot {
+        Some(snapshot) => {
+            args.push("-incoming".to_string());
+            args.push(format!("exec: gzip -c -d {}", snapshot));
+        },
+        None => {}
+    };
+    match scripts_image {
+        Some(scripts_image) => {
+            args.push("-cdrom".to_string());
+            args.push(scripts_image.to_string());
+        }
+        None => ()
+    };
+    debug!("qemu-system-x86_64 args: {:#?}", args);
     let mut child = Command::new("qemu-system-x86_64")
                 .args(&args)
                 .stdout(Stdio::piped())
                 .stdin(Stdio::piped())
                 .kill_on_drop(true)
                 .spawn()?;
-    let mut stdin = child.stdin.take().ok_or(anyhow!("Couldn't take stdin from child"))?;
-    let mut stdout = child.stdout.take().ok_or(anyhow!("Couldn't take stdout from child"))?;
+    let mut stdin = child.stdin
+        .take()
+        .ok_or(anyhow!("Couldn't take stdin from child"))?;
+    let mut stdout = child.stdout
+        .take()
+        .ok_or(anyhow!("Couldn't take stdout from child"))?;
     // run the child in its own task
     tokio::spawn(async move {
-        let status = child.wait().await.expect("Child process encountered an error");
+        let status = child.wait().await
+            .expect("Child process encountered an error");
         debug!("child status was: {}", status);
     });
     ready(&mut stdin, &mut stdout, prompt).await?;
-    return run_command(&mut stdin, &mut stdout, prompt, command).await;
+    return run_command(&mut stdin, &mut stdout, prompt, command,
+                       command_timeout).await;
 }

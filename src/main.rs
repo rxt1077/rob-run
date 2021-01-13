@@ -1,7 +1,7 @@
 use tokio_postgres::NoTls;
 use std::env;
 use dotenv::dotenv;
-use chrono::{NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use anyhow::{Result, anyhow};
 use log::debug;
 use tokio::time::{sleep, Duration};
@@ -11,32 +11,66 @@ const JOB_PAUSE: u64 = 2;
 
 mod vm;
 
+// this ugly hack brought to you by a lack of enum  support in postgres
+#[derive(Clone)]
+enum Status {
+    QUEUED,
+    RUNNING,
+    COMPLETE,
+    ERROR,
+}
+impl Status {
+    fn to_str(&self) -> &str {
+        match self {
+            Status::QUEUED => "QUEUED", 
+            Status::RUNNING => "RUNNING", 
+            Status::COMPLETE => "COMPLETE", 
+            Status::ERROR => "ERROR", 
+        }
+    }
+    fn from_str(input: &str) -> Status {
+        match input {
+            "QUEUED" => Status::QUEUED, 
+            "RUNNING" => Status::RUNNING, 
+            "COMPLETE" => Status::COMPLETE, 
+            "ERROR" => Status::ERROR,
+            _ => Status::ERROR,
+        }
+    }
+}
+
+
 #[derive(Clone)]
 struct Job<> {
     id: i32,
-    status: String,
-    started_at: Option<NaiveDateTime>,
-    completed_at: Option<NaiveDateTime>,
+    status: Status,
+    started_at: Option<DateTime<Utc>>,
+    completed_at: Option<DateTime<Utc>>,
+    memsnapshot: Option<String>,
+    tests_image: Option<String>,
+    base_image: String,
+    prompt: String,
     command: String,
+    command_timeout: Duration,
     output: String,
     git_url: String,
 }
 
-// pull_job connects to the DB, gets a job, sets the job status to STARTED, and
+// pull_job connects to the DB, gets a job, sets the job status to RUNNING, and
 // returns the job
-async fn pull_job(database_url: &str) -> Result<Job> {
+async fn pull_job(database_url: &str) -> Result<Option<Job>> {
     let (client, connection) = tokio_postgres::connect(&database_url, NoTls).await?;
     tokio::spawn(async move {
         if let Err(e) = connection.await {
             eprintln!("connection error: {}", e);
         }
     });
-    let row = client.query_one(
+    let row = client.query_opt(
         r#"
         UPDATE jobs
-        SET status='STARTED', started_at=NOW()
-        FROM groups
-        WHERE groups.id=jobs.group_id AND
+        SET status='RUNNING', started_at=NOW()
+        FROM groups, tests
+        WHERE groups.id=jobs.group_id AND tests.id=jobs.test_id AND
             jobs.id IN (
                 SELECT id FROM jobs
                 WHERE status='QUEUED'
@@ -45,35 +79,52 @@ async fn pull_job(database_url: &str) -> Result<Job> {
                 FOR UPDATE
            )
        RETURNING jobs.id, jobs.status, jobs.started_at, jobs.completed_at,
-           jobs.command, jobs.output, groups.git_url
+           tests.memsnapshot, tests.tests_image, tests.base_image,
+           tests.prompt, tests.command, tests.command_timeout, jobs.output,
+           groups.git_url
        "#,
        &[],
     ).await?;
-    Ok(Job {
-        id: row.try_get("id")?,
-        status: row.try_get("status")?,
-        started_at: row.try_get("started_at")?,
-        completed_at: row.try_get("completed_at")?,
-        command: row.try_get("command")?,
-        output: row.try_get("output")?,
-        git_url: row.try_get("git_url")?,
-    })
+    match row {
+        Some(row) => Ok(Some(Job {
+            id: row.try_get("id")?,
+            status: Status::from_str(row.try_get("status")?),
+            started_at: row.try_get("started_at")?,
+            completed_at: row.try_get("completed_at")?,
+            memsnapshot: row.try_get("memsnapshot")?,
+            tests_image: row.try_get("tests_image")?,
+            base_image: row.try_get("base_image")?,
+            prompt: row.try_get("prompt")?,
+            command: row.try_get("command")?,
+            command_timeout: Duration::from_secs(row.try_get::<&str, i32>("command_timeout")? as u64),
+            output: row.try_get("output")?,
+            git_url: row.try_get("git_url")?,
+        })),
+        None => Ok(None),
+    }
 }
 
 // runs a job on the VM and updates its parameters
 async fn run_job(job: Job) -> Result<Job> {
-    let output = vm::run(&job.command,
-                         "images/debian-10.qcow",
-                         "images/memsnapshot.gz",
-                         "root@debian:~#").await?;
+    let output = vm::run(format!("{} {}", job.command, job.git_url),
+                         job.command_timeout,
+                         &job.base_image,
+                         &job.tests_image,
+                         &job.memsnapshot,
+                         &job.prompt).await?;
     Ok(Job {
         id: job.id,
-        status: "COMPLETE".to_string(),
-        completed_at: Some(Utc::now().naive_utc()),
+        status: Status::COMPLETE,
         started_at: job.started_at,
-        git_url: job.git_url,
+        completed_at: Some(Utc::now()),
+        memsnapshot: job.memsnapshot,
+        tests_image: job.tests_image,
+        base_image: job.base_image,
+        prompt: job.prompt,
         command: job.command,
+        command_timeout: job.command_timeout,
         output: output,
+        git_url: job.git_url,
     })
 }
 
@@ -91,13 +142,16 @@ async fn save_job(database_url: &str, job: Job) -> Result<Job> {
         UPDATE jobs
         SET status=$1, completed_at=$2, started_at=$3, output=$4
         WHERE id=$5
-        "#, &[&job.status, &job.completed_at, &job.started_at, &job.output,
+        "#, &[&job.status.to_str(), &job.completed_at, &job.started_at, &job.output,
         &job.id]).await?;
     Ok(job)
 }
 
-async fn do_job(database_url: &str) -> Result<Job> {
-    let mut job = pull_job(database_url).await?;
+async fn do_job(database_url: &str) -> Result<Option<Job>> {
+    let mut job = match pull_job(database_url).await? {
+        Some(job) => job,
+        None => return Ok(None),
+    };
     println!("Running job id={}", job.id);
     let job = match run_job(job.clone()).await {
         Ok(job) => {
@@ -110,11 +164,11 @@ async fn do_job(database_url: &str) -> Result<Job> {
         }
         Err(e) => {
             println!("Job failed: {:?}", e);
-            job.status = "ERROR".to_string();
+            job.status = Status::ERROR;
             job
         }
     };
-    save_job(database_url, job).await
+    Ok(Some(save_job(database_url, job).await?))
 }
 
 #[tokio::main]
