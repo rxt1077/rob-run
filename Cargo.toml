@@ -9,13 +9,13 @@ edition = "2018"
 [package.metadata.deb]
 maintainer = "Ryan Tolboom <rxt1077@njit.edu>"
 copyright = "2021, Ryan Tolboom <rxt1077@njit.edu>"
-depends = "qemu"
+depends = "qemu-system-x86"
 section = "Development"
 priority = "optional"
 assets = [
   ["target/x86_64-unknown-linux-musl/release/rob-run", "usr/bin/", "755"],
   ["debian/rob-run.service", "etc/systemd/system/", "644"],
-  ["debian/env.conf", "etc/systemd/system/rob-run.service.d/", "644"],
+  ["debian/env.conf", "etc/systemd/system/rob-run.service.d/", "600"],
   ["README.adoc", "usr/share/doc/rob-run/README", "644"],
 ]
 

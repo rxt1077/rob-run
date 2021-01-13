@@ -11,8 +11,10 @@ isn't changed.
 == Building/Packaging Rob Run
 
 Rob Run is compiled as a static libmusl image to make it easy to use on new
-systems. A Debian package can also be build with the `cargo deb` command. The
-Debian package includes a systemd service and configuration files.
+systems. It can be built using `cargo build`. A Debian package can also be
+built with the `cargo deb` command provided by
+https://github.com/mmstick/cargo-deb. The Debian package includes a systemd
+service and configuration files.
 
 == Building an Image
 

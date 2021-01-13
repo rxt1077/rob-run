@@ -88,10 +88,11 @@ pub async fn run(command: String,
                  image: &str,
                  scripts_image: &Option<String>,
                  snapshot: &Option<String>,
-                 prompt: &str) -> Result<String>
+                 prompt: &str,
+                 memory: &str) -> Result<String>
 {
     let mut args = vec!["-hda".to_string(), image.to_string(),
-                        "-m".to_string(), "1G".to_string(),
+                        "-m".to_string(), memory.to_string(),
                         "-netdev".to_string(), "user,id=n1".to_string(),
                         "-device".to_string(), "virtio-net-pci,netdev=n1".to_string(),
                         "-nographic".to_string(), "-snapshot".to_string()];

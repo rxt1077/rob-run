@@ -105,13 +105,14 @@ async fn pull_job(database_url: &str) -> Result<Option<Job>> {
 }
 
 // runs a job on the VM and updates its parameters
-async fn run_job(job: Job) -> Result<Job> {
+async fn run_job(job: Job, memory: &str) -> Result<Job> {
     let output = vm::run(format!("{} {}", job.command, job.git_url),
                          job.command_timeout,
                          &job.base_image,
                          &job.tests_image,
                          &job.memsnapshot,
-                         &job.prompt).await?;
+                         &job.prompt,
+                         &memory).await?;
     Ok(Job {
         id: job.id,
         status: Status::COMPLETE,
@@ -147,13 +148,13 @@ async fn save_job(database_url: &str, job: Job) -> Result<Job> {
     Ok(job)
 }
 
-async fn do_job(database_url: &str) -> Result<Option<Job>> {
+async fn do_job(database_url: &str, memory: &str) -> Result<Option<Job>> {
     let mut job = match pull_job(database_url).await? {
         Some(job) => job,
         None => return Ok(None),
     };
     println!("Running job id={}", job.id);
-    let job = match run_job(job.clone()).await {
+    let job = match run_job(job.clone(), memory).await {
         Ok(job) => {
             if job.started_at == None || job.completed_at == None {
                 return Err(anyhow!("Job fields not set correctly in run_job()"));
@@ -177,9 +178,10 @@ async fn main() {
     dotenv().ok();
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL is not set in .env file");
+    let memory = env::var("MEMORY").expect("MEMORY is not set in .env file");
 
     loop {
-        match do_job(&database_url).await {
+        match do_job(&database_url, &memory).await {
             Ok(_) => {},
             Err(e) => {
                 println!("Error while running job: {}", e);
