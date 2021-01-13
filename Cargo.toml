@@ -13,7 +13,7 @@ depends = "qemu"
 section = "Development"
 priority = "optional"
 assets = [
-  ["target/x86_64-unknown-linux-musl/release/rob-run", "/usr/bin", "755"],
+  ["target/x86_64-unknown-linux-musl/release/rob-run", "usr/bin/", "755"],
   ["debian/rob-run.service", "etc/systemd/system/", "644"],
   ["debian/env.conf", "etc/systemd/system/rob-run.service.d/", "644"],
   ["README.adoc", "usr/share/doc/rob-run/README", "644"],
